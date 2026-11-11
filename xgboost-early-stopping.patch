@@ -1,0 +1,130 @@
+diff --git a/doc/python/sklearn_estimator.rst b/doc/python/sklearn_estimator.rst
+index 32623d7..bd1e0e3 100644
+--- a/doc/python/sklearn_estimator.rst
++++ b/doc/python/sklearn_estimator.rst
+@@ -24,8 +24,9 @@ interface is that it works with most of the utilities provided by sklearn like
+ :py:func:`sklearn.model_selection.cross_validate`. Also, many other libraries recognize
+ the sklearn estimator interface thanks to its popularity.
+ 
+-With the sklearn estimator interface, we can train a classification model with only a
+-couple lines of Python code. Here's an example for training a classification model:
++With the sklearn estimator interface, we can train a classification model and use a
++validation set for early stopping. This example also reserves a separate test set for
++evaluating the selected model:
+ 
+ .. code-block:: python
+ 
+@@ -35,12 +36,20 @@ couple lines of Python code. Here's an example for training a classification mod
+     import xgboost as xgb
+ 
+     X, y = load_breast_cancer(return_X_y=True)
+-    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=94)
++    # Keep the final test set out of training and early stopping.
++    X_dev, X_test, y_dev, y_test = train_test_split(
++        X, y, test_size=0.2, stratify=y, random_state=94
++    )
++    X_train, X_valid, y_train, y_valid = train_test_split(
++        X_dev, y_dev, test_size=0.25, stratify=y_dev, random_state=94
++    )
+ 
+     # Use "hist" for constructing the trees, with early stopping enabled.
+     clf = xgb.XGBClassifier(tree_method="hist", early_stopping_rounds=2)
+-    # Fit the model, test sets are used for early stopping.
+-    clf.fit(X_train, y_train, eval_set=[(X_test, y_test)])
++    # Fit on training data; select the stopping iteration on validation data.
++    clf.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
++    # Evaluate the selected model on the untouched test set.
++    print(clf.score(X_test, y_test))
+     # Save model into JSON format.
+     clf.save_model("clf.json")
+ 
+@@ -49,6 +58,12 @@ The ``tree_method`` parameter specifies the method to use for constructing the t
+ the early_stopping_rounds parameter enables early stopping. Early stopping can help
+ prevent overfitting and save time during training.
+ 
++Early stopping uses validation labels to select the number of boosting rounds. Its
++validation score is therefore not an independent final performance estimate. Keep the
++test set out of ``eval_set`` and other model-selection decisions, and evaluate it only
++after those decisions are complete. The split proportions above are illustrative; the
++appropriate splitting strategy depends on the data.
++
+ **************
+ Early Stopping
+ **************
+@@ -65,34 +80,40 @@ stack of trees:
+         rounds=2, metric_name='logloss', data_name='validation_0', save_best=True
+     )
+     clf = xgb.XGBClassifier(tree_method="hist", callbacks=[early_stop])
+-    clf.fit(X_train, y_train, eval_set=[(X_test, y_test)])
++    clf.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
+ 
+ At present, XGBoost doesn't implement data splitting logic within the estimator and relies
+ on the ``eval_set`` parameter of the :py:meth:`xgboost.XGBModel.fit` method. If you want
+ to use early stopping to prevent overfitting, you'll need to manually split your data into
+-training and testing sets using the :py:func:`sklearn.model_selection.train_test_split`
+-function from the `sklearn` library. Some other machine learning algorithms, like those in
+-`sklearn`, include early stopping as part of the estimator and may work with cross
+-validation. However, using early stopping during cross validation may not be a perfect
+-approach because it changes the model's number of trees for each validation fold, leading
+-to different model. A better approach is to retrain the model after cross validation using
+-the best hyperparameters along with early stopping. If you want to experiment with idea of
+-using cross validation with early stopping, here is a snippet to begin with:
++training and validation sets using the :py:func:`sklearn.model_selection.train_test_split`
++function from the `sklearn` library. Reserve separate data if you also need an independent
++final evaluation.
++
++For cross validation, split each outer training fold again to obtain an early-stopping
++validation set. Use the outer test fold only for scoring, not for choosing the stopping
++iteration. Different folds can select different numbers of trees; each outer score
++evaluates the same training procedure on different data. The following example uses
++fixed hyperparameters. If you use cross-validation results to select hyperparameters,
++those results are model-selection scores; a further held-out test set or nested cross
++validation is needed for an independent final evaluation.
+ 
+ .. code-block:: python
+ 
+     from sklearn.base import clone
+     from sklearn.datasets import load_breast_cancer
+-    from sklearn.model_selection import StratifiedKFold, cross_validate
++    from sklearn.model_selection import StratifiedKFold, train_test_split
+ 
+     import xgboost as xgb
+ 
+     X, y = load_breast_cancer(return_X_y=True)
+ 
+ 
+-    def fit_and_score(estimator, X_train, X_test, y_train, y_test):
+-        """Fit the estimator on the train set and score it on both sets"""
+-        estimator.fit(X_train, y_train, eval_set=[(X_test, y_test)])
++    def fit_and_score(estimator, X_dev, X_test, y_dev, y_test):
++        """Select the stopping iteration without using the outer test fold."""
++        X_train, X_valid, y_train, y_valid = train_test_split(
++            X_dev, y_dev, test_size=0.2, stratify=y_dev, random_state=94
++        )
++        estimator.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
+ 
+         train_score = estimator.score(X_train, y_train)
+         test_score = estimator.score(X_test, y_test)
+@@ -102,17 +123,17 @@ using cross validation with early stopping, here is a snippet to begin with:
+ 
+     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=94)
+ 
+-    clf = xgb.XGBClassifier(tree_method="hist", early_stopping_rounds=3)
++    estimator = xgb.XGBClassifier(tree_method="hist", early_stopping_rounds=3)
+ 
+     results = {}
+ 
+-    for train, test in cv.split(X, y):
+-        X_train = X[train]
++    for development, test in cv.split(X, y):
++        X_dev = X[development]
+         X_test = X[test]
+-        y_train = y[train]
++        y_dev = y[development]
+         y_test = y[test]
+         est, train_score, test_score = fit_and_score(
+-            clone(clf), X_train, X_test, y_train, y_test
++            clone(estimator), X_dev, X_test, y_dev, y_test
+         )
+         results[est] = (train_score, test_score)
+ 
