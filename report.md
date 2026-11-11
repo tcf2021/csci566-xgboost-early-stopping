@@ -1,26 +1,16 @@
-# 1. Project and need
+# Project and need
 
-**XGBoost: separating early-stopping validation from final evaluation**
+I used XGBoost for SDSS photometric-redshift regression, alongside a PyTorch MLP. For this contribution, I focused on its scikit-learn guide: the early-stopping examples blur the distinction between validation and test data.
 
-CSCI 566 | Optional open-source contribution report
+In the original introductory example, `X_test` and `y_test` are passed to `eval_set`. The cross-validation helper goes further: it uses the outer held-out fold to choose the stopping iteration, then reports a score on that same fold. The code runs, but the score is not an independent evaluation of the selected model. Validation labels influence the number of boosting rounds even though they do not enter the training gradients.
 
-I have used XGBoost for SDSS photometric-redshift regression, alongside a PyTorch multilayer perceptron. This makes the distinction between fitting a model, selecting its settings, and evaluating its predictions directly relevant to my work. The XGBoost version used in that earlier project is not recorded here. The contribution in this report uses a public classification example, not SDSS observations or private research data.
+The patch changes only `doc/python/sklearn_estimator.rst`: **44 insertions and 23 deletions**, with no algorithm or API changes. It is based on XGBoost commit `293cad1a89ab749e3266e190c68118af2db09982` [1, 2]. My earlier project's XGBoost version is not recorded. The examples here use scikit-learn's public breast-cancer dataset, not SDSS data.
 
-XGBoost is an open-source gradient-boosted-tree library. Its scikit-learn interface is documented in the official repository [1]. This work is based on commit 293cad1a89ab749e3266e190c68118af2db09982. The affected file is doc/python/sklearn_estimator.rst [2].
+# New work
 
-**The concrete need.** In the original introductory example, the variables named X_test and y_test are supplied to eval_set for early stopping. In the original cross-validation helper, the outer held-out fold is used both to choose the stopping iteration and to calculate test_score. The examples execute, but these data roles can lead readers to interpret a model-selection score as an independent final evaluation.
+The introductory example now reserves 20% of the data for testing, then takes 25% of the remaining development set for validation. This gives an approximately 60/20/20 train/validation/test split. Both splits are stratified with `random_state=94`. Training uses `X_train`; early stopping uses `X_valid`; scoring uses `X_test`. The callback example uses the same validation partition. These proportions illustrate the separation rather than prescribe a split for every dataset.
 
-Early stopping consults validation labels to decide how many boosting rounds to retain. Even though those labels are not used to calculate the training gradients, they still influence the selected predictor. A score on that same data is therefore not independent of selection. A two-way training/validation split is sufficient when only fitting and selecting a model; a separate untouched test set is needed when an independent final assessment is also required.
-
-**Scope and deliverables.** The upstream-facing change is documentation only: one RST file, with 44 insertions and 23 deletions. It changes neither the training algorithm nor the public API. The accompanying contribution copy contains the original and revised document, xgboost-early-stopping.patch, reproducibility scripts, recorded reference-run evidence, and a rendered HTML preview. No upstream pull request or course submission is claimed by this report.
-
-# 2. New work
-
-The revised guide makes the data roles explicit in both the introductory example and the cross-validation example.
-
-**Introductory example.** The first split reserves 20% for the final test set. A second split takes 25% of the remaining development data for validation, producing approximately 60% training, 20% validation, and 20% test data overall. Both splits use stratification and random_state=94. The fit call receives only the training data and the validation eval_set; the test set is scored afterward. These proportions are illustrative rather than a general prescription.
-
-**Callback and cross-validation examples.** The callback example uses the same X_valid and y_valid variables. In five-fold stratified cross-validation, each outer training partition becomes a development partition. The helper then reserves 20% of that partition for early stopping. The outer test fold is used only for scoring. This is the central contribution excerpt:
+For five-fold stratified CV, the helper takes its early-stopping validation set from the **outer training partition**, reserving 20% of that partition. The outer test fold is used only for scoring:
 
 ```python
 def fit_and_score(estimator, X_dev, X_test, y_dev, y_test):
@@ -29,31 +19,38 @@ def fit_and_score(estimator, X_dev, X_test, y_dev, y_test):
         X_dev, y_dev, test_size=0.2, stratify=y_dev, random_state=94
     )
     estimator.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
-
     train_score = estimator.score(X_train, y_train)
     test_score = estimator.score(X_test, y_test)
     return estimator, train_score, test_score
 ```
 
-The outer loop clones the estimator for each fold. Its template is renamed from clf to estimator, so the later native-booster example still refers to the fitted introductory clf. An unused cross_validate import is removed. The explanatory text also clarifies that different folds may select different tree counts while evaluating the same training procedure.
+Each fold receives a cloned estimator. Renaming the CV template from `clf` to `estimator` also leaves the fitted introductory `clf` available for the later native-booster example. The patch removes an unused `cross_validate` import and explains why folds can select different tree counts.
 
-**Relation to existing work.** Issue #7782 discusses dynamic eval_set and internal splitting [3]; this patch retains explicit user-controlled splits instead of adding that functionality. PR #8948 introduced the guide [4], while PR #9304 clarified best_iteration and inference [5]. Those changes do not address the separation of selection and scoring data here. A targeted review of related history and open/closed issues found no identical fix, but the search was not exhaustive and does not establish maintainer approval.
+This is a documentation fix, not the internal-splitting feature discussed in issue #7782 [3]. PR #8948 introduced the guide, and PR #9304 clarified `best_iteration` and inference [4, 5]. Neither addresses this separation of selection and scoring data. The targeted issue and history search found no identical fix, but was not exhaustive. I have not opened an upstream pull request.
 
-# 3. Verification
+# Verification
 
-**My local verification.** I completed local verification and confirmed it passed; the platform and command details for my local run are not recorded here. My confirmation does not establish that my environment or numerical outputs match the reference run below.
+I completed local verification and confirmed that it passed. My local platform, commands, and logs are not recorded here. The numerical results below are from the separately recorded **AI-assisted reference run**, saved in `evidence/assistant_run/results.json`; they are not presented as my local measurements.
 
-**Recorded AI-assisted reference run.** The saved evidence uses Python 3.12.14, the XGBoost CPU 3.4.1 wheel, scikit-learn 1.8.0, NumPy 2.3.5, and SciPy 1.17.0. The following observations are from evidence/assistant_run/results.json, not a transcription of my local results. The helper executes code extracted directly from the RST rather than a separately maintained copy of the examples.
+That run used Python 3.12.14, the XGBoost CPU 3.4.1 wheel, scikit-learn 1.8.0, NumPy 2.3.5, and SciPy 1.17.0. The verifier extracts and executes the actual Python blocks in the RST, so the checks exercise the contributed examples rather than a second implementation.
 
-**Expected behavior and observed results**
+**Execution.** The original overview and CV examples were expected to run, and did. All four revised code blocks also ran in document order, producing seven fits and eleven score calls. The callback used the same training and validation partitions as the introductory example.
 
-- **Execution:** The original overview and CV examples should run, and all four revised blocks should run sequentially. Both checks passed; the revised run recorded seven fits and eleven scores.
-- **Data separation:** Training, validation, and test row identities should be pairwise disjoint. The introductory split contained 341/114/114 rows. Four CV folds contained 364/91/114 rows and the fifth contained 364/92/113 rows. All separation assertions passed. The callback reused the introductory training and validation partitions.
-- **Baseline contrast:** The original CV helper should reveal that the early-stopping set and scored test fold are the same. Their overlaps were 114, 114, 114, 114, and 113 rows: the entire scored fold each time.
-- **Selection independence:** With outer-fold membership fixed, flipping only test labels should leave the revised fitted model unchanged. The serialized boosters were byte-identical and both selected zero-based iteration 11. Accuracy changed from 0.95614 to 0.04386, as expected when evaluation labels change. In the original helper, the same perturbation changed the selected iteration from 15 to 0, demonstrating sensitivity to those labels.
-- **Artifact checks:** The fixed upstream revision was restored and the patch applied successfully. Patch-format checks passed. An isolated Sphinx 9.1.1 preview built successfully; it uses marked external-reference placeholders and is not a full upstream documentation build.
+**Partition checks.** The verifier checks row identities, requiring the training, validation, and test sets to be pairwise disjoint. All revised checks passed:
 
-**Reproduction from the contribution copy**
+| Example | Training rows | Validation rows | Test rows |
+|:--|--:|--:|--:|
+| Introductory split | 341 | 114 | 114 |
+| CV folds 1-4, each | 364 | 91 | 114 |
+| CV fold 5 | 364 | 92 | 113 |
+
+In the original CV helper, the overlap between the early-stopping set and the scored test set was 114, 114, 114, 114, and 113 rows. That is the entire test fold in each case, confirming the behavior the patch addresses.
+
+**Test-label perturbation.** The verifier fixes one outer fold and flips only its test labels. The revised helper should fit the same model because those labels are used only for scoring. It did: the serialized boosters were byte-identical, and both selected zero-based iteration 11. Test accuracy changed from 0.95614 to 0.04386. In the original helper, the same perturbation changed the selected iteration from 15 to 0. This contrast checks that the test can detect the original coupling between selection and evaluation.
+
+**Patch and documentation checks.** The pinned upstream revision was restored and the patch applied successfully; patch-format checks passed. An isolated Sphinx 9.1.1 preview built successfully. It includes marked placeholders for external references and is not a full upstream documentation build.
+
+After downloading and extracting the contribution ZIP, run these commands from its root directory:
 
 ```text
 python -m pip install -r requirements.txt
@@ -62,32 +59,36 @@ python scripts/restore_repo.py restored-xgboost
 git -C restored-xgboost diff --check
 ```
 
-The dependency file uses standard xgboost==3.4.1; the recorded Linux reference run used xgboost-cpu==3.4.1. The verifier should print status PASS and save new results under evidence/rerun/. No source compilation, GPU testing, full repository test suite, full upstream documentation build, or public CI run is claimed. Accuracy is an observed value, not evidence that this documentation change improves prediction quality.
+The requirements file uses standard `xgboost==3.4.1`; the Linux reference run used `xgboost-cpu==3.4.1`. The verifier should report `PASS` and write new output to `evidence/rerun/`. These checks do not cover a source build, GPU execution, the full upstream test suite, the full documentation site, or public CI. The accuracy values describe this run; they do not demonstrate an accuracy improvement.
 
-# 4. Explanation
+# Explanation
 
-The design applies the training/validation/test and model-selection concepts in the CSCI 566 review material, pages 4-9 [6]. Training data fit tree parameters. Validation data select the stopping iteration. Test data assess the resulting predictor after selection. The important boundary is whether data influence a decision, not whether a variable happens to be named "test."
+The change applies the training/validation/test distinction from the CSCI 566 review material, pages 4-9 [6]. Training data fit the trees. Validation data select when to stop. Test data evaluate the selected predictor. A two-way training/validation split is enough if the goal is only to fit and select a model. The third partition is needed when reporting an independent final evaluation.
 
-For each outer CV fold, the inner validation set must come from that fold's development partition. Taking it from the outer test fold would allow test labels to influence selection. Different stopping iterations across folds are expected: CV evaluates a procedure applied to different samples, not a requirement that every fitted model have the same number of trees. This example fixes hyperparameters. If outer CV scores are later used to select hyperparameters, those scores also become model-selection evidence; an additional held-out test set or nested CV is needed for independent final evaluation.
+Early stopping is a model-selection step: validation labels help choose a predictor from the sequence of boosting iterations. Reusing those labels for final evaluation therefore mixes selection with assessment. In the CV example, splitting within the outer training partition keeps that selection step away from the outer test fold.
 
-The label-perturbation check directly probes that boundary. It keeps fold membership fixed so that changing test labels cannot alter the stratified split itself. The unchanged revised model supports the narrow claim that those test labels do not affect this helper's fitting and early stopping. It is not a proof against all forms of leakage, such as preprocessing fitted on the entire dataset. The explicit split also avoids introducing estimator-internal splitting complexities discussed in issue #7782 [3].
+Different folds need not produce the same number of trees. Each score evaluates the same training procedure on different data. The example holds hyperparameters fixed. If the outer CV scores are used to tune hyperparameters, those scores become part of model selection too; a further held-out test set or nested CV is needed for independent final evaluation.
 
-**Contribution and AI assistance.** AI assisted issue and history research, patch drafting, verification-script drafting, the recorded reference experiment, and report preparation. I supplied the personal-use context and confirmed that local verification passed. The numerical reference results above are AI-assisted evidence. This report does not claim that I independently authored every line, inspected every change, or reproduced those exact numbers on my machine.
+The perturbation check tests a specific dependency. Fold membership stays fixed, preventing changed labels from changing the stratified split. Identical revised models show that those test labels did not affect fitting or stopping in this helper. This does not rule out unrelated leakage, such as fitting preprocessing on all the data before splitting. Keeping the split explicit also avoids introducing the estimator-internal splitting behavior discussed in issue #7782.
 
-**Sources and contribution artifacts**
+**AI assistance.** AI helped research the issue history, draft the patch and verification scripts, run the recorded reference experiment, and prepare this report. I provided the personal-use background and confirmed successful local verification.
 
-[1] Official repository: https://github.com/dmlc/xgboost
+**Contribution files.** The complete patch and recorded evidence are available in the accompanying archive and repository:
 
-[2] Pinned source: https://github.com/dmlc/xgboost/blob/293cad1a89ab749e3266e190c68118af2db09982/doc/python/sklearn_estimator.rst
+<https://github.com/tcf2021/csci566-xgboost-early-stopping>
 
-[3] Related feature request and design discussion: https://github.com/dmlc/xgboost/issues/7782
+The copy includes the original and revised RST, `xgboost-early-stopping.patch`, `scripts/verify_examples.py`, `evidence/assistant_run/results.json`, `review/PRIOR_WORK.md`, and an HTML preview.
 
-[4] Original guide: https://github.com/dmlc/xgboost/pull/8948
+**References**
 
-[5] Inference clarification: https://github.com/dmlc/xgboost/pull/9304
+[1] XGBoost repository. <https://github.com/dmlc/xgboost>
 
-[6] CSCI 566 review deck, pp. 4-9: https://drive.google.com/file/d/1NqEtHTPwUhW7UTBlBg1XC3508cKzlZwD/view
+[2] Scikit-learn guide at the patched base revision. <https://github.com/dmlc/xgboost/blob/293cad1a89ab749e3266e190c68118af2db09982/doc/python/sklearn_estimator.rst>
 
-Contribution repository: https://github.com/tcf2021/csci566-xgboost-early-stopping
+[3] Issue #7782: dynamic `eval_set` and internal splitting. <https://github.com/dmlc/xgboost/issues/7782>
 
-The accompanying contribution archive contains xgboost-early-stopping.patch, scripts/verify_examples.py, evidence/assistant_run/results.json, and review/PRIOR_WORK.md. The complete patch and recorded evidence are provided in the accompanying contribution archive and at the repository URL above.
+[4] PR #8948: original scikit-learn guide. <https://github.com/dmlc/xgboost/pull/8948>
+
+[5] PR #9304: `best_iteration` and inference. <https://github.com/dmlc/xgboost/pull/9304>
+
+[6] CSCI 566 review deck, pp. 4-9. <https://drive.google.com/file/d/1NqEtHTPwUhW7UTBlBg1XC3508cKzlZwD/view>

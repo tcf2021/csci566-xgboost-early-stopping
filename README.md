@@ -1,82 +1,74 @@
-# Independent evaluation with XGBoost early stopping
+# XGBoost early stopping: validation and test data
 
-A focused, AI-assisted documentation contribution for CSCI 566. It separates early-stopping
-validation from independent test evaluation in the XGBoost scikit-learn guide. The change is
-to documentation examples, not XGBoost training code or its API.
+This is my CSCI 566 contribution to the XGBoost documentation. I used XGBoost in an
+SDSS photometric-redshift project, and chose to work on its early-stopping examples.
 
-## Start here
+The original CV example uses the same held-out fold to choose the stopping iteration
+and report a test score. The patch separates those two steps: an inner validation split
+selects the stopping iteration, then the outer test fold evaluates the fitted model.
+The introductory example and callback example use the same distinction.
 
-- [Four-part, four-page contribution report (PDF)](CSCI566_XGBoost_Contribution_Report.pdf)
-- [Editable report](report.md)
-- [Complete reproducible contribution archive](XGBoost_early_stopping_contribution.zip)
-- [Inspectable upstream patch](xgboost-early-stopping.patch)
+The change is in `doc/python/sklearn_estimator.rst`: 44 lines added and 23 removed.
+It is based on upstream commit `293cad1a89ab749e3266e190c68118af2db09982`.
 
-Download and extract the ZIP to get the full directory layout, source documents, scripts,
-requirements, reference evidence, prior-work review, and rendered documentation preview.
-The root of this GitHub repository provides the report, patch, and archive for easy review;
-the nested runnable project is inside the archive.
+## Report and files
 
-## What changed
+- [Report (PDF)](CSCI566_XGBoost_Contribution_Report.pdf)
+- [LaTeX source](report.tex)
+- [Patch](xgboost-early-stopping.patch)
+- [Full project ZIP](XGBoost_early_stopping_contribution.zip)
 
-The introduction reserves an independent final test partition before creating training and
-early-stopping validation partitions. The cross-validation example similarly creates inner
-validation data from each outer training fold and scores the untouched outer fold afterward.
-The text distinguishes fixed-procedure CV evaluation from using those scores for tuning.
+The ZIP contains the original and revised documentation, verification scripts, reference
+results, prior-work notes, and an HTML preview. Download and extract it before running
+the commands below, then enter the `xgboost-early-stopping-contribution` directory.
 
-Upstream: https://github.com/dmlc/xgboost
+## Run the checks
 
-Pinned commit: `293cad1a89ab749e3266e190c68118af2db09982`
-
-Changed file: `doc/python/sklearn_estimator.rst` (44 insertions, 23 deletions).
-The original examples execute successfully; the issue is evaluation independence and naming,
-not a runtime failure. A separate test set is needed when an independent final estimate is
-required, not for every training-only workflow.
-
-## Reproduce after extracting the archive
+Use Python 3.12 in a fresh environment:
 
 ```bash
-cd xgboost-early-stopping-contribution
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 python scripts/verify_examples.py
 ```
 
-Use Python 3.12. On Windows, activate with `.venv\Scripts\Activate.ps1` instead.
-Successful verification prints `"status": "PASS"` and writes fresh evidence under
-`evidence/rerun/`. Tests use only scikit-learn's bundled public dataset.
+On Windows, activate with `.venv\Scripts\Activate.ps1`. A passing run prints
+`"status": "PASS"` and writes its output to `evidence/rerun/`. The example uses the public
+breast-cancer dataset bundled with scikit-learn, not data from my SDSS project.
 
-The archive README also explains how to restore the pinned upstream checkout, apply the
-patch, and build the isolated Sphinx preview. No script pushes code or opens a pull request.
+The reference environment used `xgboost-cpu==3.4.1` on Linux. The requirements file uses
+standard `xgboost==3.4.1` for portability; the other package versions are pinned too.
 
-## Evidence and attribution
+The README inside the ZIP also has commands for restoring the upstream checkout and
+building the documentation preview. To rebuild the report with a standard TeX Live
+or MiKTeX installation, run twice in the folder containing `report.tex`:
 
-The contributor reports that local verification passed. Their local commands, software
-versions, operating system, and numerical logs were not supplied. Detailed results under
-`evidence/assistant_run/` in the archive are a separately recorded AI-assisted reference run,
-not logs attributed to the contributor's own machine.
+```bash
+pdflatex -interaction=nonstopmode -halt-on-error report.tex
+pdflatex -interaction=nonstopmode -halt-on-error report.tex
+```
 
-The reference checks passed for all four revised RST code blocks, disjoint data partitions,
-callback consistency, the held-out-label perturbation check, patch application, and an
-isolated Sphinx preview. The reference run used Python 3.12.14, xgboost-cpu 3.4.1,
-scikit-learn 1.8.0, NumPy 2.3.5, and SciPy 1.17.0. Portable requirements use xgboost 3.4.1.
+## Checks
 
-AI assisted background research, patch and script drafting, reference execution, and report
-preparation. The report explicitly separates that assistance from the contributor's own
-local-verification statement. See `review/AI_ASSISTANCE.md` inside the archive.
+I confirmed that local verification passed. The detailed results included here are from
+a separate AI-assisted reference run, not my own local logs.
 
-Not performed: source compilation, GPU tests, the full upstream test suite, the complete
-upstream documentation build, or public CI. No upstream issue or pull request was opened,
-and no course submission was made. No maintainer acceptance or guaranteed credit is claimed.
+That run checks the code directly from the revised RST file. All four code blocks run in
+order, and training, validation, and test rows are disjoint. With the outer split fixed,
+flipping only the test labels leaves the revised model unchanged. The original helper
+changes its selected stopping iteration under the same check.
 
-## Contents inside the archive
+The patch also applies cleanly to the pinned upstream revision, and the isolated Sphinx
+preview builds. These checks used a CPU wheel; they do not cover a source build, GPU
+tests, the full XGBoost test suite, or the complete documentation site.
 
-- `doc/python/sklearn_estimator.rst`: revised upstream documentation.
-- `upstream/sklearn_estimator.rst`: original pinned source.
-- `scripts/`: reproducibility, checkout restoration, and preview helpers.
-- `evidence/`: separately labeled AI-assisted reference results and contributor confirmation.
-- `review/`: prior-work search and AI-assistance disclosure.
-- `preview/`: isolated rendered HTML documentation preview.
-- `report/`: four-page PDF and editable Markdown.
+## AI assistance
 
-The XGBoost files retain their Apache-2.0 license; see [LICENSE-XGBoost](LICENSE-XGBoost).
+I used AI for background research, drafting the patch and helper scripts, the recorded
+reference run, and editing the report and README. The report explains the change and
+the evidence in more detail.
+
+Upstream: https://github.com/dmlc/xgboost
+
+The included XGBoost files retain their Apache-2.0 license; see `LICENSE-XGBoost`.
